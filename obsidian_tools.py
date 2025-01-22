@@ -132,7 +132,8 @@ class SummaryProcessor:
                     file_path = os.path.join(root, file)
                     rel_path = os.path.relpath(file_path, start=vault_path)
                     obsidian_link = rel_path.replace(".md", "")
-                    
+                    obsidian_link = rel_path.replace(".md", "").replace("\\", "/")  # 新增替换反斜杠
+
                     # 跳过已处理文件
                     if obsidian_link in processed_links:
                         self.stats["skipped_files"] += 1
