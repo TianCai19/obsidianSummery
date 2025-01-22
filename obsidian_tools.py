@@ -100,84 +100,105 @@ class SummaryProcessor:
                     f.seek(0, 0)
                     f.write("# Obsidian 文档摘要汇总\n\n> 自动生成于 {}\n\n".format(time.strftime("%Y-%m-%d %H:%M")) + content)
 
+    def _walk_vault(self, vault_path: str):
+        """生成器：预遍历知识库文件"""
+        for root, _, files in os.walk(vault_path):
+            if self.interrupted:
+                return
+            if any(x in root for x in ["templates", ".trash"]):
+                continue
+            for file in files:
+                if file.endswith(".md"):
+                    yield os.path.join(root, file)
+
+    def _should_process(self, file_path: str, processed_links: set) -> bool:
+        """判断文件是否需要处理"""
+        rel_path = os.path.relpath(file_path, start=self.vault_path)
+        obsidian_link = rel_path.replace(".md", "").replace("\\", "/")
+        return (
+            os.path.getsize(file_path) > 1024 and  # 过滤小文件
+            obsidian_link not in processed_links and
+            not any(p in rel_path for p in ["_templates", "Daily Notes"])  # 额外过滤条件
+        )
+
+    def process_single_file(self, file_path: str, output_path: str, lock):
+        """处理单个文件（线程安全版本）"""
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                raw_content = f.read()
+                
+            if not raw_content.strip():
+                return 0
+
+            content = self.process_content(raw_content)
+            summary, tokens = self.generate_summary(content)
+            
+            if summary:
+                rel_path = os.path.relpath(file_path, start=self.vault_path)
+                obsidian_link = rel_path.replace(".md", "").replace("\\", "/")
+                entry = f"- [[{obsidian_link}]]\n  {summary}\n\n"
+                
+                # 使用线程锁保证写入安全
+                with lock:
+                    with open(output_path, "a", encoding="utf-8") as f:
+                        f.write(entry)
+
+            return tokens
+            
+        except Exception as e:
+            print(f"\n处理文件失败 {file_path}: {str(e)}")
+            return 0
+
     def process_vault(self, vault_path: str, output_file: str) -> None:
-        """处理整个知识库"""
+        """处理整个知识库（多线程优化版）"""
+        self.vault_path = vault_path
         output_path = os.path.join(vault_path, output_file)
         processed_links = self.get_processed_links(output_path)
         self.init_output_file(output_path)
-        
-        # 统计总文件数
-        self.stats["total_files"] = sum(
-            len(files) 
-            for root, _, files in os.walk(vault_path) 
-            if not any(x in root for x in ["templates", ".trash"])
-        )
-        
+
+        # 预扫描并过滤文件
+        file_list = []
+        for file_path in self._walk_vault(vault_path):
+            if self._should_process(file_path, processed_links):
+                file_list.append(file_path)
+        self.stats["total_files"] = len(file_list)
+        self.stats["skipped_files"] = sum(1 for _ in self._walk_vault(vault_path)) - len(file_list)
+
         try:
-            for root, _, files in os.walk(vault_path):
-                if self.interrupted:
-                    break
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            import threading
+            
+            # 初始化线程锁
+            write_lock = threading.Lock()
+            # 动态调整线程数（4-8个）
+            max_workers = min(8, max(4, (os.cpu_count() or 4)))
+            completed = 0
+            
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(self.process_single_file, f, output_path, write_lock): f for f in file_list}
                 
-                # 跳过特殊目录
-                if any(x in root for x in ["templates", ".trash"]):
-                    continue
-                    
-                for file in files:
+                for future in as_completed(futures):
                     if self.interrupted:
+                        executor.shutdown(wait=False, cancel_futures=True)
                         break
                         
-                    if not file.endswith(".md"):
-                        continue
-                        
-                    file_path = os.path.join(root, file)
-                    rel_path = os.path.relpath(file_path, start=vault_path)
-                    obsidian_link = rel_path.replace(".md", "")
-                    obsidian_link = rel_path.replace(".md", "").replace("\\", "/")  # 新增替换反斜杠
-
-                    # 跳过已处理文件
-                    if obsidian_link in processed_links:
-                        self.stats["skipped_files"] += 1
-                        continue
+                    tokens = future.result()
+                    self.stats["processed_files"] += 1
+                    self.stats["total_tokens"] += tokens
+                    completed += 1
                     
-                    try:
-                        # 读取文件内容
-                        with open(file_path, "r", encoding="utf-8") as f:
-                            raw_content = f.read()
-                            
-                        if not raw_content.strip():
-                            continue
-                            
-                        # 处理内容
-                        content = self.process_content(raw_content)
-                        summary, tokens = self.generate_summary(content)
-                        
-                        # 更新统计信息
-                        self.stats["processed_files"] += 1
-                        self.stats["total_tokens"] += tokens
-                        
-                        if summary:
-                            # 追加写入结果
-                            with open(output_path, "a", encoding="utf-8") as f:
-                                entry = f"- [[{obsidian_link}]]\n  {summary}\n\n"
-                                f.write(entry)
-                            
-                            # 更新已处理记录
-                            processed_links.add(obsidian_link)
-                            
-                        # 显示实时进度
+                    # 降低进度刷新频率（每处理1%或至少1秒）
+                    if completed % max(1, len(file_list)//100) == 0 or time.time() - self.stats["start_time"] > 1:
                         self.print_progress()
-                        
-                    except Exception as e:
-                        print(f"\n处理文件失败 {file_path}: {str(e)}")
-                        
+            
             print(f"\n\n✅ 处理完成！结果已保存至：{output_path}")
             
         finally:
-            # 显示最终统计
             total_time = time.time() - self.stats["start_time"]
             print(f"\n📊 最终统计：")
-            print(f"- 总文件数: {self.stats['total_files']}")
-            print(f"- 已处理文件: {self.stats['processed_files']}")
+            print(f"- 总文件数: {self.stats['total_files'] + self.stats['skipped_files']}")
+            print(f"- 待处理文件: {self.stats['total_files']}")
+            print(f"- 成功处理: {self.stats['processed_files']}")
             print(f"- 跳过文件: {self.stats['skipped_files']}")
             print(f"- 总Token用量: {self.stats['total_tokens']}")
             print(f"- 总耗时: {total_time:.1f}秒")
