@@ -13,14 +13,7 @@ An efficient tool to create a comprehensive summary of your Obsidian notes using
 - **Parallel Processing**: Utilizes multi-threading for faster processing
 - **Configurable**: Customize summary generation through environment variables
 
-## Why Use This Tool?
 
-- **Cost-Effective**: Uses Deepseek's AI model with very competitive pricing
-- **Knowledge Review**: Quickly review all your notes without opening each file
-- **Content Discovery**: Rediscover forgotten notes and connections
-- **Time Saving**: Get the essence of your notes in a single document
-- **Easy Navigation**: Click links to jump to original notes for details
-- **Progress Tracking**: Monitor token usage and processing statistics
 
 ## Cost Estimation
 
