@@ -11,7 +11,6 @@ An efficient tool to create a comprehensive summary of your Obsidian notes using
 - **Progress Tracking**: Shows real-time progress with detailed statistics
 - **Interrupt-Safe**: Supports graceful interruption and progress saving with Ctrl+C
 - **Parallel Processing**: Utilizes multi-threading for faster processing
-- **Configurable**: Customize summary generation through environment variables
 
 
 
