@@ -49,6 +49,24 @@ This project provides a summary of your Obsidian notes.
     uv run summary.py
     ```
 
+    Example output:
+    ```
+    🦉 Starting to process vault... (Press Ctrl+C to interrupt and save progress)
+    🚀 Progress: 24/24 (100.0%) | ⏳ Time: 18.3s | 📊 Token: 25788 | 🕒 ETA: 0.0s
+
+    ✅ Processing complete! Results saved to: /path/to/vault/summary.md
+
+    📊 Final Statistics:
+    - Total files: 43
+    - Files to process: 24
+    - Successfully processed: 24
+    - Skipped files: 19
+    - Total tokens used: 25788
+    - Total time: 18.3s
+    - Processing speed: 1.3 files/sec
+    - Token rate: 1405.4 tokens/sec
+    ```
+
 ## Contributing
 
 Contributions are welcome! Please open an issue or submit a pull request.
